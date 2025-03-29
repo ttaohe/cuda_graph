@@ -88,6 +88,8 @@ int main()
     cudaStreamCreate(&cstream);
     cudaGraphExec_t instance;
 
+    cudaGraphNode_t new_node;
+
     // 开始在这个流里捕获图
     cudaStreamBeginCapture(cstream, cudaStreamCaptureModeGlobal);
 
@@ -113,14 +115,32 @@ int main()
         const cudaGraphNode_t *deps;
         size_t dep_count;
         cudaStreamGetCaptureInfo_v2(cstream, &capture_status, nullptr, &cgraph, &deps, &dep_count);
-
-        cudaGraphNode_t new_node;
+        
         cudaGraphAddKernelNode(&new_node, cgraph, deps, dep_count, &params);
     }
 
     cudaStreamEndCapture(cstream, &cgraph);
     cudaGraphInstantiate(&instance, cgraph, nullptr, nullptr, 0);
+    {
+        cudaKernelNodeParams params;
+        params.blockDim = {32, 1, 1};
+        params.gridDim = {static_cast<unsigned>(M), static_cast<unsigned int>(N), 1};
+        params.sharedMemBytes = 0;
+        params.extra = nullptr;
+        params.func = reinterpret_cast<void *>(sgemm);
 
+        void *kenelParams[] = {
+            &M,
+            &N,
+            &K,
+            &matrix_A_device,
+            &matrix_B_device,
+            &matrix_C_device};
+
+        params.kernelParams = kenelParams;
+        cudaGraphExecKernelNodeSetParams(instance, new_node, &params);
+    }
+        
     cudaGraphLaunch(instance, cstream);
 
     cudaMemcpy(matrix_C_gpu_host, matrix_C_device, mem_size_C, cudaMemcpyDeviceToHost);
